@@ -1,0 +1,192 @@
+{
+  "name": "EchoPulse \u00b7 Ingest Review",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "echopulse-ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ingest-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 2.1,
+      "webhookId": "echopulse-ingest"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst rating = Number(body.rating);\nconst review = (body.review || '').trim();\n\nif (!review) throw new Error('Review text is required');\nif (!Number.isInteger(rating) || rating < 1 || rating > 5) {\n  throw new Error('Rating must be an integer between 1 and 5');\n}\n\nreturn [{ json: { rating, review } }];"
+      },
+      "id": "ingest-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        220,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Rating: {{ $json.rating }}/5\nReview:\n{{ $json.review }}",
+        "options": {
+          "systemMessage": "You categorize customer product reviews for a product team.\n\nReturn ONLY valid JSON (no markdown) with these keys:\n- summary: one sentence, max 120 characters\n- category: exactly one of bug, feature, ux, billing, performance, other\n- severity: exactly one of critical, high, medium, low\n- sentiment: exactly one of positive, negative, neutral\n- product_area: short label (checkout, mobile, dashboard, login, etc.) or null\n\nSeverity guide:\n- critical: crashes, data loss, security, complete blockers\n- high: major broken features\n- medium: noticeable but workable\n- low: minor polish or praise"
+        }
+      },
+      "id": "ingest-categorize",
+      "name": "Analyze & Categorize",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "position": [
+        440,
+        0
+      ],
+      "typeVersion": 1.4
+    },
+    {
+      "parameters": {
+        "jsCode": "const { rating, review } = $('Validate Input').first().json;\nlet raw = $input.first().json.text || $input.first().json.output || '';\nraw = String(raw).replace(/```json\\n?/gi, '').replace(/```\\n?/g, '').trim();\n\nconst allowed = {\n  category: ['bug', 'feature', 'ux', 'billing', 'performance', 'other'],\n  severity: ['critical', 'high', 'medium', 'low'],\n  sentiment: ['positive', 'negative', 'neutral'],\n};\n\nfunction parseLabels(text) {\n  try { return JSON.parse(text); } catch {}\n  const match = text.match(/\\{[\\s\\S]*\\}/);\n  if (match) return JSON.parse(match[0]);\n  throw new Error(`Model did not return JSON. Got: ${text.slice(0, 120)}`);\n}\n\nconst labels = parseLabels(raw);\n\nfor (const [field, values] of Object.entries(allowed)) {\n  if (!values.includes(labels[field])) labels[field] = field === 'category' ? 'other' : field === 'severity' ? 'medium' : 'neutral';\n}\n\nreturn [{\n  json: {\n    rating,\n    raw_text: review,\n    summary: String(labels.summary || review).slice(0, 200),\n    category: labels.category,\n    severity: labels.severity,\n    sentiment: labels.sentiment,\n    product_area: labels.product_area || null,\n  }\n}];"
+      },
+      "id": "ingest-parse",
+      "name": "Parse Categories",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        660,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO feedback (raw_text, rating, summary, category, severity, sentiment, product_area)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nRETURNING id, category, severity, sentiment, summary, created_at;",
+        "options": {
+          "queryReplacement": "={{ $json.raw_text }},={{ $json.rating }},={{ $json.summary }},={{ $json.category }},={{ $json.severity }},={{ $json.sentiment }},={{ $json.product_area }}"
+        }
+      },
+      "id": "ingest-postgres",
+      "name": "Store in Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        880,
+        0
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Thank you for your feedback!', labels: { category: $('Parse Categories').item.json.category, severity: $('Parse Categories').item.json.severity, sentiment: $('Parse Categories').item.json.sentiment, summary: $('Parse Categories').item.json.summary }, feedback_id: $json.id } }}"
+      },
+      "id": "ingest-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1100,
+        0
+      ],
+      "typeVersion": 1.5
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ingest-openrouter",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "position": [
+        440,
+        200
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openRouterApi": {
+          "id": "OPENROUTER_CREDENTIAL_ID",
+          "name": "OpenRouter account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Analyze & Categorize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze & Categorize": {
+      "main": [
+        [
+          {
+            "node": "Parse Categories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Categories": {
+      "main": [
+        [
+          {
+            "node": "Store in Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in Postgres": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze & Categorize",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

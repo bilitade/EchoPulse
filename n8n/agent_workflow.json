@@ -1,0 +1,163 @@
+{
+  "name": "EchoPulse \u00b7 Feedback Analyst",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "echopulse-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "agent-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 2.1,
+      "webhookId": "echopulse-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst question = (body.question || '').trim();\nconst history = Array.isArray(body.history) ? body.history : [];\n\nif (!question) throw new Error('Question is required');\n\nconst historyText = history\n  .slice(-6)\n  .map(m => `${m.role}: ${m.content}`)\n  .join('\\n');\n\nreturn [{ json: { question, historyText } }];"
+      },
+      "id": "agent-prepare",
+      "name": "Prepare Question",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        220,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.historyText ? 'Previous conversation:\\n' + $json.historyText + '\\n\\n' : '' }}Current question: {{ $json.question }}",
+        "options": {
+          "systemMessage": "You are EchoPulse, an AI analyst for customer feedback stored in PostgreSQL.\n\nYou have MCP tools to query the feedback database:\n- get_summary_stats(days): overview counts by category, severity, sentiment\n- search_feedback(query, limit): full-text search\n- get_top_issues(category?, days?, limit?): most frequent issues\n- get_trend(category?, severity?, days?): daily counts over time\n- get_critical_items(resolved?, limit?): high/critical items\n- mark_resolved(feedback_id, reason?): mark resolved \u2014 ONLY when user explicitly confirms\n\nRules:\n1. Start with get_summary_stats for overview questions\n2. Use search_feedback for specific topics\n3. Use get_trend when asked about patterns over time\n4. Cite specific numbers from tool results\n5. Keep answers concise \u2014 3 to 5 sentences unless asked for detail\n6. Never call mark_resolved unless the user explicitly asks\n\nTone: direct, data-driven, helpful senior analyst."
+        }
+      },
+      "id": "agent-ai",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        440,
+        0
+      ],
+      "typeVersion": 3.1
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "sseEndpoint": "http://mcp:8000/sse",
+        "include": "all",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "agent-mcp",
+      "name": "EchoPulse MCP Client",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "position": [
+        440,
+        220
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { answer: $json.output || $json.text || $json.response } }}"
+      },
+      "id": "agent-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        660,
+        0
+      ],
+      "typeVersion": 1.5
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "agent-openrouter",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "position": [
+        440,
+        400
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openRouterApi": {
+          "id": "OPENROUTER_CREDENTIAL_ID",
+          "name": "OpenRouter account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Question": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EchoPulse MCP Client": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,75 +1,52 @@
-import streamlit as st
+import os
+
 import requests
+import streamlit as st
+from dotenv import load_dotenv
 
-st.set_page_config(
-    page_title="EchoPulse",
-    page_icon="⭐",
-    layout="centered"
-)
+load_dotenv()
 
-st.markdown("""
-<style>
-.main { max-width: 700px; }
+N8N_INGEST_URL = os.getenv("N8N_INGEST_WEBHOOK_URL", "")
 
-.review-card {
-    background: white;
-    padding: 2rem;
-    border-radius: 18px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-}
+st.set_page_config(page_title="Submit Review", layout="centered")
 
-h1 { text-align: center; }
-
-.stButton button {
-    width: 100%;
-    height: 3rem;
-    border-radius: 12px;
-    font-weight: 600;
-}
-
-textarea {
-    border-radius: 12px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.title("⭐ EchoPulse")
+st.title("Submit Review")
 st.caption("How was your experience?")
 
-rating = st.radio(
-    "Rate your experience",
-    [1, 2, 3, 4, 5],
-    horizontal=True
-)
+if not N8N_INGEST_URL:
+    st.warning("Set `N8N_INGEST_WEBHOOK_URL` in `.env`.")
+
+rating = st.radio("Rating", [1, 2, 3, 4, 5], horizontal=True)
 
 review = st.text_area(
-    "Leave a review",
-    placeholder="Tell us what you liked, what could be improved, or anything you'd like us to know...",
-    height=150
+    "Your review",
+    placeholder="What went well? What could be improved?",
+    height=150,
 )
 
-submit = st.button("Submit Review")
-
-if submit:
+if st.button("Submit"):
     if not review.strip():
         st.warning("Please write a review.")
+    elif not N8N_INGEST_URL:
+        st.error("Ingest webhook URL is not configured.")
     else:
-        payload = {
-            "rating": rating,
-            "review": review
-        }
-
         try:
             response = requests.post(
-                "https://bilitade2022.app.n8n.cloud/webhook-test/echopulse-agent",
-                json=payload,
-                timeout=10
+                N8N_INGEST_URL,
+                json={"rating": rating, "review": review},
+                timeout=60,
             )
-
             if response.status_code == 200:
-                st.success("Thank you for your feedback!")
+                data = response.json()
+                labels = data.get("labels", {})
+                st.success(data.get("message", "Thank you for your feedback."))
+                if labels:
+                    st.info(
+                        f"**{labels.get('category')}** · "
+                        f"{labels.get('severity')} severity · "
+                        f"{labels.get('sentiment')}"
+                    )
             else:
-                st.error(f"Webhook error: {response.status_code}")
-
+                st.error(f"Error {response.status_code}: {response.text}")
         except Exception as e:
             st.error(f"Request failed: {e}")

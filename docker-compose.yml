@@ -1,14 +1,14 @@
+name: echopulse
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: echopulse-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-12345678}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-echopulse}
       TZ: ${TZ:-Africa/Addis_Ababa}
-    ports:
-      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/01-create-n8n-db.sql:/docker-entrypoint-initdb.d/01-create-n8n-db.sql
@@ -26,11 +26,9 @@ services:
       dockerfile: docker/mcp.Dockerfile
     container_name: echopulse-mcp
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-12345678}@postgres:5432/${POSTGRES_DB:-echopulse}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-echopulse}
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
-    ports:
-      - "${MCP_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,11 +46,11 @@ services:
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: n8n
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-postgres}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-12345678}
-      N8N_HOST: localhost
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: 5678
-      N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
     volumes:
       - ./n8n_data:/home/node/.n8n
     depends_on:

@@ -44,12 +44,10 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-| Service   | URL                          |
-|-----------|------------------------------|
-| Streamlit | http://localhost:8501        |
-| n8n       | http://localhost:5678        |
-| MCP (SSE) | http://localhost:8000/sse    |
-| Postgres  | localhost:5433 (host port)   |
+| Service   | URL                   |
+|-----------|-----------------------|
+| Streamlit | http://localhost:8501 |
+| n8n       | http://localhost:5678 |
 
 ## n8n setup
 

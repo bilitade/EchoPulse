@@ -3,4 +3,3 @@
 __pycache__/
 *.pyc
 n8n_data/
-.python-version
